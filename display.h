@@ -12,7 +12,7 @@ class Display : public QWidget
     Q_OBJECT
 
 public:
-    Display(QWidget *parent, t_ioValue *data);
+    Display(QWidget *parent, implicitMapperData data, int isSrc);
 
 public slots:
     void animate();
@@ -21,7 +21,8 @@ protected:
     void paintEvent(QPaintEvent *event) Q_DECL_OVERRIDE;
 
 private:
-    t_ioValue *dataref;
+    implicitMapperData data;
+    int isSource;
 };
 
 #endif // DISPLAY_H

@@ -17,7 +17,7 @@ typedef struct _snapshot
     float *inputs;
     float *outputs;
     struct _snapshot *next;
-} *t_snapshot;
+} t_snapshot, *snapshot;
 
 typedef struct _ioValue
 {
@@ -45,7 +45,7 @@ typedef struct _implicitMapperData {
     t_ioValue input;
     t_ioValue output;
     int numSnapshots;
-    t_snapshot snapshots;
+    snapshot snapshots;
     bool updateLabels;
 } implicitMapperData_t, *implicitMapperData;
 
@@ -54,7 +54,9 @@ void linkHandler(mapper_db_link lnk, mapper_db_action_t a, void *user_data);
 void connectHandler(mapper_db_connection con, mapper_db_action_t a, void *user);
 void initIO(t_ioValue *x, void *data);
 void clearSnapshots(implicitMapperData data);
-
+void randomizeDest(implicitMapperData data);
+void takeSnapshot(implicitMapperData data);
+void queryTimeout(implicitMapperData data);
 
 
 #endif // LOGIC_H

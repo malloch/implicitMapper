@@ -42,8 +42,8 @@ MainWindow::MainWindow(QWidget *parent) :
     ui->centralWidget->setPalette(*palette);
     ui->centralWidget->show();
 
-    srcDisplay = new Display(this, &data->input);
-    dstDisplay = new Display(this, &data->output);
+    srcDisplay = new Display(this, data, 1);
+    dstDisplay = new Display(this, data, 0);
 
     ui->gridLayout->addWidget(srcDisplay, 3, 0, 1, 2, 0);
     ui->gridLayout->addWidget(dstDisplay, 3, 2, 1, 2, 0);
@@ -110,6 +110,13 @@ void MainWindow::poll()
         str.setNum(mdev_num_outputs(data->device) - 1);
         ui->destLabel->setText(str + " destination parameters");
     }
+    if (data->queryCount) {
+        // check if too much time has elapsed
+        mapper_timetag_t tt;
+        mdev_now(data->device, &tt);
+        if (mapper_timetag_difference(tt, data->tt) > 1.)
+            queryTimeout(data);
+    }
 }
 
 void MainWindow::on_clearButton_clicked()
@@ -135,71 +142,12 @@ void MainWindow::on_processButton_clicked()
 
 void MainWindow::on_randomizeButton_clicked()
 {
-    int i, j;
-    float rand_val;
-    mapper_db_signal props;
-    if (data->ready) {
-        mdev_now(data->device, &data->tt);
-        mdev_start_queue(data->device, data->tt);
-        mapper_signal *psig = mdev_get_outputs(data->device);
-        for (i = 1; i < mdev_num_outputs(data->device); i ++) {
-            props = msig_properties(psig[i]);
-            t_signal_ref *ref = (t_signal_ref*)props->user_data;
-            if (props->type == 'f') {
-                float v[props->length];
-                float *min = (float*)props->minimum, *max = (float*)props->maximum;
-                for (j = 0; j < props->length; j++) {
-                    rand_val = (float)rand() / (float)RAND_MAX;
-                    if (min && max) {
-                        v[j] = rand_val * (max[j] - min[j]) + min[j];
-                    }
-                    else {
-                        // if ranges have not been declared, assume normalized between 0 and 1
-                        v[j] = rand_val;
-                    }
-                    data->output.value[ref->offset+j] = v[j];
-                }
-                msig_update(psig[i], v, 1, data->tt);
-            }
-            else if (props->type == 'i') {
-                int v[props->length];
-                int *min = (int*)props->minimum, *max = (int*)props->maximum;
-                for (j = 0; j < props->length; j++) {
-                    rand_val = (float)rand() / (float)RAND_MAX;
-                    if (props->minimum && props->maximum) {
-                        v[j] = (int) (rand_val * (max[j] - min[j]) + min[j]);
-                    }
-                    else {
-                        // if ranges have not been declared, assume normalized between 0 and 1
-                        v[j] = (int) rand_val;
-                    }
-                    data->output.value[ref->offset+j] = (float)v[j];
-                }
-                msig_update(psig[i], v, 1, data->tt);
-            }
-            else if (props->type == 'd') {
-                double v[props->length];
-                double *min = (double*)props->minimum, *max = (double*)props->maximum;
-                for (j = 0; j < props->length; j++) {
-                    rand_val = (float)rand() / (float)RAND_MAX;
-                    if (props->minimum && props->maximum) {
-                        v[j] = rand_val * (max[j] - min[j]) + min[j];
-                    }
-                    else {
-                        // if ranges have not been declared, assume normalized between 0 and 1
-                        v[j] = rand_val;
-                    }
-                    data->output.value[ref->offset+j] = (float)v[j];
-                }
-                msig_update(psig[i], v, 1, data->tt);
-            }
-        }
-        mdev_send_queue(data->device, data->tt);
-        data->newOut = 1;
-    }
+    if (data->ready)
+        randomizeDest(data);
 }
 
 void MainWindow::on_snapshotButton_clicked()
 {
-    ;
+    if (data->ready && data->input.size && data->output.size)
+        takeSnapshot(data);
 }

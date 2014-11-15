@@ -36,7 +36,7 @@ static int osc_prefix_cmp(const char *str1, const char *str2,
 void clearSnapshots(implicitMapperData data)
 {
     while (data->snapshots) {
-        t_snapshot temp = data->snapshots->next;
+        snapshot temp = data->snapshots->next;
         free(data->snapshots->inputs);
         free(data->snapshots->outputs);
         data->snapshots = temp;
@@ -44,6 +44,7 @@ void clearSnapshots(implicitMapperData data)
     data->numSnapshots = 0;
     // clear state of implicit mapping engine
     // clear UI indicator
+    data->newIn = data->newOut = true;
 }
 
 int compare_signal_names(const void *l, const void *r)
@@ -160,7 +161,7 @@ void inputHandler(mapper_signal sig, mapper_db_signal props,
             input->multiplier[offset] = 1 / (input->maxima[offset] - input->minima[offset]);
         }
     }
-    data->newIn = 1;
+    data->newIn = true;
 }
 
 void queryHandler(mapper_signal sig, mapper_db_signal props,
@@ -196,10 +197,9 @@ void queryHandler(mapper_signal sig, mapper_db_signal props,
 
     data->queryCount --;
 
-//    if (data->queryCount == 0) {
-//        clock_unset(x->timeout);
-//        impmap_output_snapshot(x);
-//    }
+    if (data->queryCount == 0) {
+        data->newOut = true;
+    }
 }
 
 
@@ -379,5 +379,153 @@ void initIO(t_ioValue *x, void *data)
         x->value[i] = 0.f;
         x->mapperSignals[i].data = data;
         x->init[i] = false;
+    }
+}
+
+void randomizeDest(implicitMapperData data)
+{
+    printf("randomizeDest()\n");
+    int i, j;
+    float rand_val;
+    mapper_db_signal props;
+    if (!data->ready)
+        return;
+
+    mdev_now(data->device, &data->tt);
+    mdev_start_queue(data->device, data->tt);
+    mapper_signal *psig = mdev_get_outputs(data->device);
+    t_ioValue *output = &data->output;
+    for (i = 1; i < mdev_num_outputs(data->device); i ++) {
+        props = msig_properties(psig[i]);
+        t_signal_ref *ref = (t_signal_ref*)props->user_data;
+        if (props->type == 'f') {
+            float v[props->length];
+            float *min = (float*)props->minimum, *max = (float*)props->maximum;
+            for (j = 0; j < props->length; j++) {
+                rand_val = (float)rand() / (float)RAND_MAX;
+                if (min && max) {
+                    v[j] = rand_val * (max[j] - min[j]) + min[j];
+                }
+                else {
+                    // if ranges have not been declared, assume normalized between 0 and 1
+                    v[j] = rand_val;
+                }
+                output->value[ref->offset+j] = v[j];
+                printf("   set val[%i] to %f (f)\n", ref->offset+j, output->value[ref->offset+j]);
+            }
+            msig_update(psig[i], v, 1, data->tt);
+        }
+        else if (props->type == 'i') {
+            int v[props->length];
+            int *min = (int*)props->minimum, *max = (int*)props->maximum;
+            for (j = 0; j < props->length; j++) {
+                rand_val = (float)rand() / (float)RAND_MAX;
+                if (props->minimum && props->maximum) {
+                    v[j] = (int) (rand_val * (max[j] - min[j]) + min[j]);
+                }
+                else {
+                    // if ranges have not been declared, assume normalized between 0 and 1
+                    v[j] = (int) rand_val;
+                }
+                output->value[ref->offset+j] = (float)v[j];
+                printf("   set val[%i] to %f (i)\n", ref->offset+j, output->value[ref->offset+j]);
+            }
+            msig_update(psig[i], v, 1, data->tt);
+        }
+        else if (props->type == 'd') {
+            double v[props->length];
+            double *min = (double*)props->minimum, *max = (double*)props->maximum;
+            for (j = 0; j < props->length; j++) {
+                rand_val = (float)rand() / (float)RAND_MAX;
+                if (props->minimum && props->maximum) {
+                    v[j] = rand_val * (max[j] - min[j]) + min[j];
+                }
+                else {
+                    // if ranges have not been declared, assume normalized between 0 and 1
+                    v[j] = rand_val;
+                }
+                output->value[ref->offset+j] = (float)v[j];
+                printf("   set val[%i] to %f (d)\n", ref->offset+j, output->value[ref->offset+j]);
+            }
+            msig_update(psig[i], v, 1, data->tt);
+        }
+    }
+    mdev_send_queue(data->device, data->tt);
+    // update ranges
+    for (i = 0; i < output->size; i++) {
+        bool recalc = false;
+        // check ranges
+        if (!output->init[i]) {
+            output->minima[i] = output->maxima[i] = output->value[i];
+            output->multiplier[i] = 0;
+            output->init[i] = true;
+        }
+        else if (output->value[i] < output->minima[i]) {
+            output->minima[i] = output->value[i];
+            recalc = 1;
+        }
+        else if (output->value[i] > output->maxima[i]) {
+            output->maxima[i] = output->value[i];
+            recalc = 1;
+        }
+        if (recalc) {
+            output->multiplier[i] = 1 / (output->maxima[i] - output->minima[i]);
+        }
+    }
+    data->newOut = 1;
+}
+
+void takeSnapshot(implicitMapperData data)
+{
+    // if previous snapshot still in progress, output current snapshot status
+    if (data->queryCount) {
+        printf("still waiting for last snapshot");
+        return;
+    }
+
+    int i, num;
+    mapper_signal *psig;
+    data->queryCount = 0;
+
+    // allocate a new snapshot
+    snapshot new_snapshot = (snapshot) malloc(sizeof(t_snapshot));
+    new_snapshot->id = data->numSnapshots++;
+    new_snapshot->next = data->snapshots;
+    new_snapshot->inputs = (float*) calloc(data->input.size, sizeof(float));
+    new_snapshot->outputs = (float*) calloc(data->output.size, sizeof(float));
+    data->snapshots = new_snapshot;
+
+    // iterate through input signals and store their current values
+    psig = mdev_get_inputs(data->device);
+    num = mdev_num_inputs(data->device);
+    for (i = 1; i < num; i++) {
+        mapper_db_signal props = msig_properties(psig[i]);
+        void *value = msig_value(psig[i], 0);
+        t_signal_ref *ref = (t_signal_ref*) props->user_data;
+        int length = (ref->offset + props->length < MAX_LIST
+                      ? props->length
+                      : MAX_LIST - ref->offset);
+        // we can simply use memcpy here since all our signals are type 'f'
+        memcpy(&data->snapshots->inputs[ref->offset], value, length*sizeof(float));
+    }
+
+    // iterate through output signals and query the remote ends
+    psig = mdev_get_outputs(data->device);
+    num = mdev_num_outputs(data->device);
+    mdev_now(data->device, &data->tt);
+    mdev_start_queue(data->device, data->tt);
+    for (i = 1; i < num; i++) {
+        // query the remote value
+        data->queryCount += msig_query_remotes(psig[i], MAPPER_NOW);
+    }
+    mdev_send_queue(data->device, data->tt);
+    printf("sent %i queries", data->queryCount);
+}
+
+void queryTimeout(implicitMapperData data)
+{
+    if (data->queryCount) {
+        printf("query timeout! setting query count to 0 and outputting current values.");
+        data->queryCount = 0;
     }
 }
