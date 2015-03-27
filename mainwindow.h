@@ -20,15 +20,10 @@ public:
 
 private slots:
     void poll();
-
-    void on_clearButton_clicked();
-
+//    void on_clearButton_clicked();
     void on_muteButton_clicked();
-
     void on_processButton_clicked();
-
     void on_randomizeButton_clicked();
-
     void on_snapshotButton_clicked();
 
 private:

@@ -38,45 +38,18 @@
    <layout class="QGridLayout" name="gridLayout">
     <item row="0" column="0">
      <widget class="QPushButton" name="randomizeButton">
-      <property name="text">
-       <string>Randomize</string>
-      </property>
-     </widget>
-    </item>
-    <item row="2" column="0" colspan="2">
-     <widget class="QLabel" name="srcLabel">
-      <property name="maximumSize">
+      <property name="minimumSize">
        <size>
-        <width>16777215</width>
-        <height>20</height>
+        <width>0</width>
+        <height>50</height>
        </size>
       </property>
-      <property name="layoutDirection">
-       <enum>Qt::LeftToRight</enum>
-      </property>
       <property name="text">
-       <string>0 source parameters</string>
-      </property>
-      <property name="alignment">
-       <set>Qt::AlignCenter</set>
+       <string>randomize</string>
       </property>
      </widget>
     </item>
-    <item row="0" column="1">
-     <widget class="QPushButton" name="snapshotButton">
-      <property name="text">
-       <string>Snapshot</string>
-      </property>
-     </widget>
-    </item>
-    <item row="0" column="3">
-     <widget class="QPushButton" name="muteButton">
-      <property name="text">
-       <string>Mute</string>
-      </property>
-     </widget>
-    </item>
-    <item row="2" column="2" colspan="2">
+    <item row="1" column="2" colspan="2">
      <widget class="QLabel" name="destLabel">
       <property name="maximumSize">
        <size>
@@ -84,8 +57,19 @@
         <height>20</height>
        </size>
       </property>
+      <property name="font">
+       <font>
+        <family>Arial</family>
+        <pointsize>15</pointsize>
+        <weight>75</weight>
+        <bold>true</bold>
+       </font>
+      </property>
       <property name="layoutDirection">
        <enum>Qt::LeftToRight</enum>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">color: rgba(0,0,0,130)</string>
       </property>
       <property name="text">
        <string>0 destination parameters</string>
@@ -95,17 +79,72 @@
       </property>
      </widget>
     </item>
-    <item row="0" column="2">
-     <widget class="QPushButton" name="processButton">
+    <item row="0" column="3">
+     <widget class="QPushButton" name="muteButton">
+      <property name="minimumSize">
+       <size>
+        <width>0</width>
+        <height>50</height>
+       </size>
+      </property>
       <property name="text">
-       <string>Process</string>
+       <string>mute</string>
       </property>
      </widget>
     </item>
-    <item row="1" column="3">
-     <widget class="QPushButton" name="clearButton">
+    <item row="1" column="0" colspan="2">
+     <widget class="QLabel" name="srcLabel">
+      <property name="maximumSize">
+       <size>
+        <width>16777215</width>
+        <height>20</height>
+       </size>
+      </property>
+      <property name="font">
+       <font>
+        <family>Arial</family>
+        <pointsize>14</pointsize>
+        <weight>75</weight>
+        <bold>true</bold>
+       </font>
+      </property>
+      <property name="layoutDirection">
+       <enum>Qt::LeftToRight</enum>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">color: rgba(0,0,0,130)</string>
+      </property>
       <property name="text">
-       <string>Clear</string>
+       <string>0 source parameters</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+    </item>
+    <item row="0" column="2">
+     <widget class="QPushButton" name="processButton">
+      <property name="minimumSize">
+       <size>
+        <width>0</width>
+        <height>50</height>
+       </size>
+      </property>
+      <property name="text">
+       <string>process</string>
+      </property>
+     </widget>
+    </item>
+    <item row="0" column="1">
+     <widget class="QPushButton" name="snapshotButton">
+      <property name="minimumSize">
+       <size>
+        <width>0</width>
+        <height>50</height>
+       </size>
+      </property>
+      <property name="text">
+       <string>snapshot</string>
       </property>
      </widget>
     </item>
@@ -130,8 +169,40 @@
     <property name="title">
      <string>ImplicitMapper</string>
     </property>
+    <addaction name="actionAbout_ImplicitMapper"/>
+    <addaction name="separator"/>
+    <addaction name="actionPreferences"/>
+   </widget>
+   <widget class="QMenu" name="menuFile">
+    <property name="title">
+     <string>File</string>
+    </property>
+    <addaction name="actionOpen"/>
+    <addaction name="actionOpen_Recent"/>
+    <addaction name="separator"/>
+    <addaction name="actionSave"/>
+   </widget>
+   <widget class="QMenu" name="menuLearn">
+    <property name="title">
+     <string>Learn</string>
+    </property>
+    <addaction name="actionTake_Snapshot"/>
+    <addaction name="separator"/>
+    <addaction name="actionClear_All_Snapshots"/>
+    <addaction name="separator"/>
+    <addaction name="actionProcess"/>
+   </widget>
+   <widget class="QMenu" name="menuOutput">
+    <property name="title">
+     <string>Output</string>
+    </property>
+    <addaction name="actionMute_Output"/>
+    <addaction name="actionRandomize_Output"/>
    </widget>
    <addaction name="menuImplicitMapper"/>
+   <addaction name="menuFile"/>
+   <addaction name="menuLearn"/>
+   <addaction name="menuOutput"/>
   </widget>
   <widget class="QToolBar" name="mainToolBar">
    <attribute name="toolBarArea">
@@ -142,6 +213,62 @@
    </attribute>
   </widget>
   <widget class="QStatusBar" name="statusBar"/>
+  <action name="actionAbout_ImplicitMapper">
+   <property name="text">
+    <string>About ImplicitMapper</string>
+   </property>
+  </action>
+  <action name="actionPreferences">
+   <property name="text">
+    <string>Preferences</string>
+   </property>
+  </action>
+  <action name="actionOpen">
+   <property name="text">
+    <string>Open...</string>
+   </property>
+  </action>
+  <action name="actionOpen_Recent">
+   <property name="text">
+    <string>Open Recent</string>
+   </property>
+  </action>
+  <action name="actionSave">
+   <property name="text">
+    <string>Save</string>
+   </property>
+  </action>
+  <action name="actionTake_Snapshot">
+   <property name="text">
+    <string>Take Snapshot</string>
+   </property>
+   <property name="shortcut">
+    <string>Space</string>
+   </property>
+  </action>
+  <action name="actionClear_All_Snapshots">
+   <property name="text">
+    <string>Clear All Snapshots</string>
+   </property>
+  </action>
+  <action name="actionProcess">
+   <property name="text">
+    <string>Process</string>
+   </property>
+  </action>
+  <action name="actionMute_Output">
+   <property name="text">
+    <string>Mute Output</string>
+   </property>
+  </action>
+  <action name="actionRandomize_Output">
+   <property name="text">
+    <string>Randomize Output</string>
+   </property>
+   <property name="shortcut">
+    <string>R</string>
+   </property>
+  </action>
  </widget>
  <layoutdefault spacing="6" margin="11"/>
  <resources/>

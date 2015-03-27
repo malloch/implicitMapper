@@ -34,6 +34,19 @@ MainWindow::MainWindow(QWidget *parent) :
 
     setWindowTitle(tr("Implicit Mapper"));
 
+    // style the buttons
+    QString style("color: white;\
+                  background-color: rgba(0, 0, 0, 120);\
+                  border-width: 6px;\
+                  border-radius: 10px;\
+                  border-color: rgba(125, 168, 117, 255);\
+                  font: 18px;\
+                  padding: 6px;");
+    ui->randomizeButton->setStyleSheet(style);
+    ui->snapshotButton->setStyleSheet(style);
+    ui->processButton->setStyleSheet(style);
+    ui->muteButton->setStyleSheet(style);
+
     QPalette* palette = new QPalette();
     QLinearGradient linearGradient(QPointF(250, 0), QPointF(250, 400));
     linearGradient.setColorAt(0, QColor(125, 168, 117));
@@ -119,11 +132,11 @@ void MainWindow::poll()
     }
 }
 
-void MainWindow::on_clearButton_clicked()
-{
-    // TODO: clear snapshots in implicit mapping engine
-    clearSnapshots(data);
-}
+//void MainWindow::on_clearButton_clicked()
+//{
+//    // TODO: clear snapshots in implicit mapping engine
+//    clearSnapshots(data);
+//}
 
 void MainWindow::on_muteButton_clicked()
 {

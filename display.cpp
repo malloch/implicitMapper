@@ -56,8 +56,16 @@ void Display::paintEvent(QPaintEvent *event)
             last = next;
         }
         path->lineTo(width * i, last);
-        // TODO: set color from snapshot id
-        painter.setPen(QColor(255, 255, 255));
+
+        // set color from snapshot index
+        QColor color;
+        int colorID = s->id * 25;
+        color.setBlue(255 - colorID % 255);
+        colorID /= 255;
+        color.setGreen(255 - colorID % 255);
+        colorID /= 255;
+        color.setRed(255 - colorID % 255);
+        painter.setPen(color);
         painter.strokePath(*path, painter.pen());
 
         s = s->next;

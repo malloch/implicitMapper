@@ -4,32 +4,21 @@
 #include <string.h>
 #include <math.h>
 
-/* Helper function to check if the OSC prefix matches.  Like strcmp(),
- * returns 0 if they match (up to the second '/'), non-0 otherwise.
- * Also optionally returns a pointer to the remainder of str1 after
- * the prefix. */
-static int osc_prefix_cmp(const char *str1, const char *str2,
-                          const char **rest)
+/* Helper function to check if the OSC prefix matches.  Like strcmp(), returns
+ * 0 if they match (up to the second '/'), non-0 otherwise. Also optionally
+ * returns a pointer to the remainder of str1 after the prefix. */
+static int osc_prefix_cmp(const char *str1, const char *str2, const char **rest)
 {
-    if (str1[0]!='/') {
+    if (str1[0]!='/' || str2[0]!='/')
         return 0;
-    }
-    if (str2[0]!='/') {
-        return 0;
-    }
-
     // skip first slash
     const char *s1=str1+1, *s2=str2+1;
-
     while (*s1 && (*s1)!='/') s1++;
     while (*s2 && (*s2)!='/') s2++;
-
     int n1 = s1-str1, n2 = s2-str2;
     if (n1!=n2) return 1;
-
     if (rest)
         *rest = s1;
-
     return strncmp(str1, str2, n1);
 }
 
