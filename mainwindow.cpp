@@ -14,12 +14,9 @@ MainWindow::MainWindow(QWidget *parent) :
 
     data = (implicitMapperData) malloc(sizeof(struct _implicitMapperData));
 
-    data->admin = mapper_admin_new(0, 0, 0);  // TODO: allow choosing interface
-    data->device = mdev_new("implicitmap", 0, data->admin);
-    data->monitor = mapper_monitor_new(data->admin, 0);
-    data->db = mapper_monitor_get_db(data->monitor);
-    mapper_db_add_link_callback(data->db, linkHandler, data);
-    mapper_db_add_connection_callback(data->db, connectHandler, data);
+    data->device = mapper_device_new("implicitmap", 0, 0);
+    mapper_device_set_user_data(data->device, data);
+    mapper_device_set_map_callback(data->device, mapHandler);
 
     data->ready = false;
     data->mute = false;
@@ -72,15 +69,7 @@ MainWindow::~MainWindow()
 
     if (data) {
         if (data->device)
-            mdev_free(data->device);
-        if (data->db) {
-            mapper_db_remove_connection_callback(data->db, connectHandler, data);
-            mapper_db_remove_link_callback(data->db, linkHandler, data);
-        }
-        if (data->monitor)
-            mapper_monitor_free(data->monitor);
-        if (data->admin)
-            mapper_admin_free(data->admin);
+            mapper_device_free(data->device);
         clearSnapshots(data);
         free(data);
     }
@@ -88,22 +77,20 @@ MainWindow::~MainWindow()
 
 void MainWindow::poll()
 {
-    mdev_poll(data->device, 0);
-    mapper_monitor_poll(data->monitor, 0);
+    mapper_device_poll(data->device, 0);
     if (!data->ready) {
-        if (mdev_ready(data->device)) {
+        if (mapper_device_ready(data->device)) {
             data->ready = true;
 
             // create a new generic output signal
-            mdev_add_output(data->device, "/CONNECT_HERE", 1, 'f', 0, 0, 0);
+            data->dummy_output = mapper_device_add_output_signal(data->device,
+                                                                 "CONNECT_TO_DESTINATION",
+                                                                 1, 'f', 0, 0, 0);
 
             // create a new generic input signal
-            mdev_add_input(data->device, "/CONNECT_HERE", 1, 'f', 0, 0, 0, 0, data);
-
-            // subscribe to ourself
-            mapper_monitor_subscribe(data->monitor, mdev_name(data->device),
-                                     SUB_DEVICE_LINKS | SUB_DEVICE_CONNECTIONS,
-                                     -1);
+            data->dummy_input = mapper_device_add_input_signal(data->device,
+                                                               "CONNECT_TO_SOURCE",
+                                                               1, 'f', 0, 0, 0, 0, 0);
         }
     }
     if (data->newIn) {
@@ -118,15 +105,15 @@ void MainWindow::poll()
     }
     if (data->updateLabels) {
         QString str;
-        str.setNum(mdev_num_inputs(data->device) - 1);
+        str.setNum(mapper_device_num_signals(data->device, MAPPER_DIR_INCOMING) - 1);
         ui->srcLabel->setText(str + " source parameters");
-        str.setNum(mdev_num_outputs(data->device) - 1);
+        str.setNum(mapper_device_num_signals(data->device, MAPPER_DIR_OUTGOING) - 1);
         ui->destLabel->setText(str + " destination parameters");
     }
     if (data->queryCount) {
         // check if too much time has elapsed
         mapper_timetag_t tt;
-        mdev_now(data->device, &tt);
+        mapper_timetag_now(&tt);
         if (mapper_timetag_difference(tt, data->tt) > 1.)
             queryTimeout(data);
     }

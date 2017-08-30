@@ -32,10 +32,9 @@ typedef struct _ioValue
 } t_ioValue;
 
 typedef struct _implicitMapperData {
-    mapper_admin admin;
     mapper_device device;
-    mapper_monitor monitor;
-    mapper_db db;
+    mapper_signal dummy_input;
+    mapper_signal dummy_output;
     mapper_timetag_t tt;
     bool ready;
     bool mute;
@@ -50,8 +49,7 @@ typedef struct _implicitMapperData {
 } implicitMapperData_t, *implicitMapperData;
 
 // function prototypes
-void linkHandler(mapper_db_link lnk, mapper_db_action_t a, void *user_data);
-void connectHandler(mapper_db_connection con, mapper_db_action_t a, void *user);
+void mapHandler(mapper_device dev, mapper_map map, mapper_record_event e);
 void initIO(t_ioValue *x, void *data);
 void clearSnapshots(implicitMapperData data);
 void randomizeDest(implicitMapperData data);

@@ -16,21 +16,23 @@ CONFIG += c++11
 SOURCES += main.cpp\
         mainwindow.cpp \
     display.cpp \
-    logic.cpp
+    logic.cpp \
+    RumelhartNetwork.c
 
 HEADERS  += mainwindow.h \
     display.h \
-    logic.h
+    logic.h \
+    RumelhartNetwork.h
 
 FORMS    += mainwindow.ui
 
 
-win32:CONFIG(release, debug|release): LIBS += -L$$PWD/../../../../../../usr/local/lib/release/ -lmapper-0
-else:win32:CONFIG(debug, debug|release): LIBS += -L$$PWD/../../../../../../usr/local/lib/debug/ -lmapper-0
-else:unix: LIBS += -L$$PWD/../../../../../../usr/local/lib/ -lmapper-0
+win32:CONFIG(release, debug|release): LIBS += -L$$PWD/../../../../../../usr/local/lib/release/ -lmapper
+else:win32:CONFIG(debug, debug|release): LIBS += -L$$PWD/../../../../../../usr/local/lib/debug/ -lmapper
+else:unix: LIBS += -L$$PWD/../../../../../../usr/local/lib/ -lmapper
 
-INCLUDEPATH += $$PWD/../../../../../../usr/local/include/mapper-0
-DEPENDPATH += $$PWD/../../../../../../usr/local/include/mapper-0
+INCLUDEPATH += $$PWD/../../../../../../usr/local/include/mapper
+DEPENDPATH += $$PWD/../../../../../../usr/local/include/mapper
 
 win32:CONFIG(release, debug|release): LIBS += -L$$PWD/../../../../../../usr/local/lib/release/ -llo
 else:win32:CONFIG(debug, debug|release): LIBS += -L$$PWD/../../../../../../usr/local/lib/debug/ -llo

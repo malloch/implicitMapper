@@ -4,24 +4,6 @@
 #include <string.h>
 #include <math.h>
 
-/* Helper function to check if the OSC prefix matches.  Like strcmp(), returns
- * 0 if they match (up to the second '/'), non-0 otherwise. Also optionally
- * returns a pointer to the remainder of str1 after the prefix. */
-static int osc_prefix_cmp(const char *str1, const char *str2, const char **rest)
-{
-    if (str1[0]!='/' || str2[0]!='/')
-        return 0;
-    // skip first slash
-    const char *s1=str1+1, *s2=str2+1;
-    while (*s1 && (*s1)!='/') s1++;
-    while (*s2 && (*s2)!='/') s2++;
-    int n1 = s1-str1, n2 = s2-str2;
-    if (n1!=n2) return 1;
-    if (rest)
-        *rest = s1;
-    return strncmp(str1, str2, n1);
-}
-
 void clearSnapshots(implicitMapperData data)
 {
     while (data->snapshots) {
@@ -38,33 +20,35 @@ void clearSnapshots(implicitMapperData data)
 
 int compare_signal_names(const void *l, const void *r)
 {
-    mapper_db_signal l_props = msig_properties(*(mapper_signal*)l);
-    mapper_db_signal r_props = msig_properties(*(mapper_signal*)r);
-    return strcmp(l_props->name, r_props->name);
+    return strcmp(mapper_signal_name(*(mapper_signal*)l),
+                  mapper_signal_name(*(mapper_signal*)r));
 }
 
 void updateInputVectorPositions(implicitMapperData data)
 {
+    printf("updateInputVectorPositions()\n");
     int i, k = 0, count;
+    int num_inputs = mapper_device_num_signals(data->device, MAPPER_DIR_INCOMING) - 1;
 
     // store input signal pointers
-    mapper_signal sigs[mdev_num_inputs(data->device) - 1];
-    mapper_signal *psig = mdev_get_inputs(data->device);
-    // start counting at index 1 to ignore signal "/CONNECT_HERE"
-    for (i = 1; i < mdev_num_inputs(data->device); i++) {
-        sigs[i-1] = psig[i];
+    mapper_signal sigs[num_inputs];
+    mapper_signal *psig = mapper_device_signals(data->device, MAPPER_DIR_INCOMING);
+
+    i = 0;
+    while (psig) {
+        if (*psig != data->dummy_input)
+            sigs[i++] = *psig;
+        psig = mapper_signal_query_next(psig);
     }
 
     // sort input signal pointer array
-    qsort(sigs, mdev_num_inputs(data->device) - 1,
-          sizeof(mapper_signal), compare_signal_names);
+    qsort(sigs, num_inputs, sizeof(mapper_signal), compare_signal_names);
 
     // set offsets and user_data
-    for (i = 0; i < mdev_num_inputs(data->device) - 1; i++) {
-        mapper_db_signal props = msig_properties(sigs[i]);
+    for (i = 0; i < num_inputs; i++) {
         data->input.mapperSignals[i].offset = k;
-        props->user_data = &data->input.mapperSignals[i];
-        k += props->length;
+        mapper_signal_set_user_data(sigs[i], &data->input.mapperSignals[i]);
+        k += mapper_signal_length(sigs[i]);
     }
     count = k < MAX_LIST ? k : MAX_LIST;
     if (count != data->input.size && data->numSnapshots) {
@@ -77,25 +61,27 @@ void updateInputVectorPositions(implicitMapperData data)
 void updateOutputVectorPositions(implicitMapperData data)
 {
     int i, k = 0, count;
+    int num_outputs = mapper_device_num_signals(data->device, MAPPER_DIR_OUTGOING) - 1;
 
     // store output signal pointers
-    mapper_signal sigs[mdev_num_outputs(data->device) - 1];
-    mapper_signal *psig = mdev_get_outputs(data->device);
-    // start counting at index 1 to ignore signal "/CONNECT_HERE"
-    for (i = 1; i < mdev_num_outputs(data->device); i++) {
-        sigs[i-1] = psig[i];
+    mapper_signal sigs[num_outputs];
+    mapper_signal *psig = mapper_device_signals(data->device, MAPPER_DIR_OUTGOING);
+
+    i = 0;
+    while (psig) {
+        if (*psig != data->dummy_output)
+            sigs[i++] = *psig;
+        psig = mapper_signal_query_next(psig);
     }
 
     // sort output signal pointer array
-    qsort(sigs, mdev_num_outputs(data->device) - 1,
-          sizeof(mapper_signal), compare_signal_names);
+    qsort(sigs, num_outputs, sizeof(mapper_signal), compare_signal_names);
 
     // set offsets and user_data
-    for (i = 0; i < mdev_num_outputs(data->device) - 1; i++) {
-        mapper_db_signal props = msig_properties(sigs[i]);
+    for (i = 0; i < num_outputs; i++) {
         data->output.mapperSignals[i].offset = k;
-        props->user_data = &data->output.mapperSignals[i];
-        k += props->length;
+        mapper_signal_set_user_data(sigs[i], &data->output.mapperSignals[i]);
+        k += mapper_signal_length(sigs[i]);
     }
     count = k < MAX_LIST ? k : MAX_LIST;
     if (count != data->output.size && data->numSnapshots) {
@@ -105,16 +91,21 @@ void updateOutputVectorPositions(implicitMapperData data)
     data->output.size = count;
 }
 
-void inputHandler(mapper_signal sig, mapper_db_signal props,
-                  int instance_id, void *value, int count,
-                  mapper_timetag_t *time)
+void inputHandler(mapper_signal sig, mapper_id instance_id, const void *value,
+                  int count, mapper_timetag_t *time)
 {
-    t_signal_ref *ref = (t_signal_ref*)props->user_data;
+    t_signal_ref *ref = (t_signal_ref*)mapper_signal_user_data(sig);
+    if (!ref) {
+        printf("inputHandler: missing user_data for signal '%s'\n",
+               mapper_signal_name(sig));
+        return;
+    }
     implicitMapperData data = (implicitMapperData)ref->data;
     t_ioValue *input = &data->input;
 
     int j, offset, recalc;
-    for (j=0; j < props->length; j++) {
+    char type = mapper_signal_type(sig);
+    for (j=0; j < mapper_signal_length(sig); j++) {
         offset = ref->offset + j;
         recalc = 0;
         if (offset >= MAX_LIST) {
@@ -124,11 +115,11 @@ void inputHandler(mapper_signal sig, mapper_db_signal props,
         if (!value) {
             input->value[offset] = 0.f;
         }
-        else if (props->type == 'f') {
+        else if (type == 'f') {
             float *f = (float*)value;
             input->value[offset] = f[j];
         }
-        else if (props->type == 'i') {
+        else if (type == 'i') {
             int *i = (int*)value;
             input->value[offset] = (float)i[j];
         }
@@ -153,32 +144,35 @@ void inputHandler(mapper_signal sig, mapper_db_signal props,
     data->newIn = true;
 }
 
-void queryHandler(mapper_signal sig, mapper_db_signal props,
-                  int instance_id, void *value, int count,
-                  mapper_timetag_t *time)
+void queryHandler(mapper_signal sig,  mapper_id instance_id, const void *value,
+                  int count, mapper_timetag_t *time)
 {
-    t_signal_ref *ref = (t_signal_ref*)props->user_data;
+    t_signal_ref *ref = (t_signal_ref*)mapper_signal_user_data(sig);
+    if (!ref) {
+        printf("queryHandler: missing user_data for signal '%s'\n",
+               mapper_signal_name(sig));
+        return;
+    }
     implicitMapperData data = (implicitMapperData)ref->data;
-    if (!data)
-        printf("pointer problem! %p", data);
 
     int j;
-    for (j = 0; j < props->length; j++) {
+    char type = mapper_signal_type(sig);
+    for (j = 0; j < mapper_signal_length(sig); j++) {
         if (ref->offset+j >= MAX_LIST) {
             printf("mapper: Maximum vector length exceeded!");
             break;
         }
         if (!value)
             continue;
-        else if (props->type == 'f') {
+        else if (type == 'f') {
             float *f = (float*)value;
             data->snapshots->outputs[ref->offset+j] = f[j];
         }
-        else if (props->type == 'i') {
+        else if (type == 'i') {
             int *i = (int*)value;
             data->snapshots->outputs[ref->offset+j] = (float)i[j];
         }
-        else if (props->type == 'd') {
+        else if (type == 'd') {
             double *d = (double*)value;
             data->snapshots->outputs[ref->offset+j] = (float)d[j];
         }
@@ -193,170 +187,213 @@ void queryHandler(mapper_signal sig, mapper_db_signal props,
 
 
 // *********************************************************
-// -(link handler)------------------------------------------
-void linkHandler(mapper_db_link lnk, mapper_db_action_t a, void *user_data)
-{
-    implicitMapperData data = (implicitMapperData)user_data;
-    if (!data) {
-        printf("error in connect handler: user_data is NULL");
-        return;
-    }
-    if (!data->ready) {
-        printf("error in connect handler: device not ready");
-        return;
-    }
-    if (a == MDB_NEW) {
-        // do not allow self-links
-        if (strcmp(lnk->src_name, mdev_name(data->device)) == 0 &&
-            strcmp(lnk->dest_name, mdev_name(data->device)) == 0) {
-            mapper_monitor_unlink(data->monitor, lnk->src_name, lnk->dest_name);
-        }
-    }
-}
-
-void connectHandler(mapper_db_connection con, mapper_db_action_t a, void *user)
+// -(map handler)------------------------------------------
+void mapHandler(mapper_device dev, mapper_map map, mapper_record_event e)
 {
     // if connected involves current generic signal, create a new generic signal
-    implicitMapperData data = (implicitMapperData)user;
+    implicitMapperData data = (implicitMapperData)mapper_device_user_data(dev);
     if (!data) {
-        printf("error in connect handler: user_data is NULL");
+        printf("error in map handler: user_data is NULL");
         return;
     }
     if (!data->ready) {
-        printf("error in connect handler: device not ready");
+        printf("error in map handler: device not ready");
         return;
     }
-    const char *signalName = 0;
-    switch (a) {
-    case MDB_NEW: {
+
+    // retrieve devices and signals
+    mapper_slot slot = mapper_map_slot(map, MAPPER_LOC_SOURCE, 0);
+    mapper_signal src_sig = mapper_slot_signal(slot);
+    mapper_device src_dev = mapper_signal_device(src_sig);
+    slot = mapper_map_slot(map, MAPPER_LOC_DESTINATION, 0);
+    mapper_signal dst_sig = mapper_slot_signal(slot);
+    mapper_device dst_dev = mapper_signal_device(dst_sig);
+
+    // sanity check: don't allow self-connections
+    if (src_dev == dst_dev) {
+        mapper_map_release(map);
+        return;
+    }
+
+    char full_name[256];
+
+    if (e == MAPPER_ADDED) {
         // check if applies to me
-        if (!osc_prefix_cmp(con->src_name, mdev_name(data->device),
-                            &signalName)) {
-            if (strcmp(signalName, con->dest_name) == 0)
+        if (src_dev == data->device) {
+            snprintf(full_name, 256, "%s/%s", mapper_device_name(dst_dev),
+                     mapper_signal_name(dst_sig));
+            if (strcmp(mapper_signal_name(src_sig), full_name) == 0) {
+                // <thisDev>:<dstDevName>/<dstSigName> -> <dstDev>:<dstSigName>
                 return;
-            if (mdev_num_outputs(data->device) >= MAX_LIST) {
+            }
+            if (mapper_device_num_signals(data->device, MAPPER_DIR_OUTGOING) >= MAX_LIST) {
                 printf("Max outputs reached!");
                 return;
             }
-            // disconnect the generic signal
-            mapper_monitor_disconnect(data->monitor, con->src_name,
-                                      con->dest_name);
+
+            // unmap the generic signal
+            mapper_map_release(map);
 
             // add a matching output signal
-            mapper_signal msig;
-            char str[256];
-            int length = con->dest_length ? : 1;
-            if (con->dest_min && con->dest_max)
-                msig = mdev_add_output(data->device, con->dest_name, length,
-                                       'f', 0, con->dest_min, con->dest_max);
-            else {
-                float min[length], max[length];
-                for (int i = 0; i < length; i++) {
-                    min[i] = 0.f;
-                    max[i] = 1.f;
-                }
-                msig = mdev_add_output(data->device, con->dest_name,
-                                       length, 'f', 0, min, max);
+            int i, length = mapper_signal_length(dst_sig) ?: 1;
+            char type = mapper_signal_type(dst_sig);
+            void *min = mapper_signal_minimum(dst_sig);
+            void *max = mapper_signal_maximum(dst_sig);
+
+            float *minf = 0, *maxf = 0;
+            if (type == 'f') {
+                minf = (float*)min;
+                maxf = (float*)max;
             }
-            if (!msig) {
-                printf("msig doesn't exist!");
+            else {
+                if (min) {
+                    minf = (float*)alloca(length * sizeof(float));
+                    if (type == 'i') {
+                        int *mini = (int*)min;
+                        for (i = 0; i < length; i++)
+                            minf[i] = (float)mini[i];
+                    }
+                    else if (type == 'd') {
+                        double *mind = (double*)min;
+                        for (i = 0; i < length; i++)
+                            minf[i] = (float)mind[i];
+                    }
+                    else
+                        minf = 0;
+                }
+                if (max) {
+                    maxf = (float*)alloca(length * sizeof(float));
+                    if (type == 'i') {
+                        int *maxi = (int*)max;
+                        for (i = 0; i < length; i++)
+                            maxf[i] = (float)maxi[i];
+                    }
+                    else if (type == 'd') {
+                        double *maxd = (double*)max;
+                        for (i = 0; i < length; i++)
+                            maxf[i] = (float)maxd[i];
+                    }
+                    else
+                        maxf = 0;
+                }
+            }
+            src_sig = mapper_device_add_output_signal(data->device, full_name,
+                                                      length, 'f', 0, minf, maxf);
+            if (!src_sig) {
+                printf("error creating new source signal!");
                 return;
             }
-            msig_set_callback(msig, queryHandler, 0);
-            // connect the new signal
-            msig_full_name(msig, str, 256);
-            mapper_db_connection_t props;
-            props.mode = MO_BYPASS;
-            mapper_monitor_connect(data->monitor, str, con->dest_name,
-                                   &props, CONNECTION_MODE);
+            mapper_signal_set_callback(src_sig, queryHandler);
+
+            // map the new signal
+            map = mapper_map_new(1, &src_sig, 1, &dst_sig);
+            mapper_map_set_mode(map, MAPPER_MODE_EXPRESSION);
+            mapper_map_set_expression(map, "y=x");
+            mapper_map_push(map);
 
             updateOutputVectorPositions(data);
 
             data->updateLabels = true;
         }
-        else if (!osc_prefix_cmp(con->dest_name, mdev_name(data->device),
-                                 &signalName)) {
-            if (strcmp(signalName, con->src_name) == 0)
+        else if (dst_dev == data->device) {
+            snprintf(full_name, 256, "%s/%s", mapper_device_name(src_dev),
+                     mapper_signal_name(src_sig));
+            if (strcmp(mapper_signal_name(dst_sig), full_name) == 0) {
+                // <srcDevName>:<srcSigName> -> <thisDev>:<srcDevName>/<srcSigName>
                 return;
-            if (mdev_num_inputs(data->device) >= MAX_LIST) {
+            }
+            if (mapper_device_num_signals(data->device, MAPPER_DIR_INCOMING) >= MAX_LIST) {
                 printf("Max inputs reached!");
                 return;
             }
-            // disconnect the generic signal
-            mapper_monitor_disconnect(data->monitor, con->src_name,
-                                      con->dest_name);
+            // unmap the generic signal
+            mapper_map_release(map);
 
-            // create a matching input signal
-            mapper_signal msig;
-            char str[256];
-            int length = con->src_length ? : 1;
-            if (con->src_min && con->src_max)
-                msig = mdev_add_input(data->device, con->src_name, length,
-                                      'f', 0, con->src_min, con->src_max,
-                                      inputHandler, 0);
-            else {
-                float min[length], max[length];
-                for (int i = 0; i < length; i++) {
-                    min[i] = 0.f;
-                    max[i] = 1.f;
-                }
-                msig = mdev_add_input(data->device, con->src_name, length,
-                                      'f', 0, min, max, inputHandler, 0);
+            // add a matching input signal
+            int i, length = mapper_signal_length(src_sig);
+            char type = mapper_signal_type(src_sig);
+            void *min = mapper_signal_minimum(src_sig);
+            void *max = mapper_signal_maximum(src_sig);
+
+            float *minf = 0, *maxf = 0;
+            if (type == 'f') {
+                minf = (float*)min;
+                maxf = (float*)max;
             }
-            if (!msig)
+            else {
+                if (min) {
+                    minf = (float*)alloca(length * sizeof(float));
+                    if (type == 'i') {
+                        int *mini = (int*)min;
+                        for (i = 0; i < length; i++)
+                            minf[i] = (float)mini[i];
+                    }
+                    else if (type == 'd') {
+                        double *mind = (double*)min;
+                        for (i = 0; i < length; i++)
+                            minf[i] = (float)mind[i];
+                    }
+                    else
+                        minf = 0;
+                }
+                if (max) {
+                    maxf = (float*)alloca(length * sizeof(float));
+                    if (type == 'i') {
+                        int *maxi = (int*)max;
+                        for (i = 0; i < length; i++)
+                            maxf[i] = (float)maxi[i];
+                    }
+                    else if (type == 'd') {
+                        double *maxd = (double*)max;
+                        for (i = 0; i < length; i++)
+                            maxf[i] = (float)maxd[i];
+                    }
+                    else
+                        maxf = 0;
+                }
+            }
+            dst_sig = mapper_device_add_input_signal(data->device, full_name,
+                                                     length, 'f', 0, minf, maxf,
+                                                     inputHandler, 0);
+            if (!dst_sig) {
+                printf("error creating new destination signal!");
                 return;
-            // connect the new signal
-            mapper_db_connection_t props;
-            props.mode = MO_BYPASS;
-            msig_full_name(msig, str, 256);
-            mapper_monitor_connect(data->monitor, con->src_name, str,
-                                   &props, CONNECTION_MODE);
+            }
+
+            // map the new signal
+            map = mapper_map_new(1, &src_sig, 1, &dst_sig);
+            mapper_map_set_mode(map, MAPPER_MODE_EXPRESSION);
+            mapper_map_set_expression(map, "y=x");
+            mapper_map_push(map);
 
             updateInputVectorPositions(data);
-
             data->updateLabels = true;
         }
-        break;
     }
-    case MDB_MODIFY:
-        break;
-    case MDB_REMOVE: {
-        mapper_signal msig;
-        // check if applies to me
-        if (!(osc_prefix_cmp(con->dest_name, mdev_name(data->device),
-                             &signalName))) {
-            if (strcmp(signalName, "/CONNECT_HERE") == 0)
+    else if (e == MAPPER_REMOVED) {
+        if (src_sig == data->dummy_input
+                || src_sig == data->dummy_output
+                || dst_sig == data->dummy_input
+                || dst_sig == data->dummy_output)
+            return;
+        if (src_dev == data->device) {
+            snprintf(full_name, 256, "%s/%s", mapper_device_name(dst_dev),
+                     mapper_signal_name(dst_sig));
+            if (strcmp(mapper_signal_name(src_sig), full_name) != 0)
                 return;
-            if (strcmp(signalName, con->src_name) != 0)
-                return;
-            // find corresponding signal
-            if (!(msig = mdev_get_input_by_name(data->device, signalName, 0))) {
-                printf("error: input signal %s not found!", signalName);
-                return;
-            }
-            // remove it
-            mdev_remove_input(data->device, msig);
+            // remove signal
+            mapper_device_remove_signal(data->device, src_sig);
             updateInputVectorPositions(data);
         }
-        else if (!(osc_prefix_cmp(con->src_name, mdev_name(data->device),
-                                  &signalName))) {
-            if (strcmp(signalName, "/CONNECT_HERE") == 0)
+        else if (dst_dev == data->device) {
+            snprintf(full_name, 256, "%s/%s", mapper_device_name(src_dev),
+                     mapper_signal_name(src_sig));
+            if (strcmp(mapper_signal_name(dst_sig), full_name) != 0)
                 return;
-            if (strcmp(signalName, con->dest_name) != 0)
-                return;
-            // find corresponding signal
-            if (!(msig = mdev_get_output_by_name(data->device, signalName, 0))) {
-                printf("error: output signal %s not found", signalName);
-                return;
-            }
-            // remove it
-            mdev_remove_output(data->device, msig);
+            // remove signal
+            mapper_device_remove_signal(data->device, dst_sig);
             updateOutputVectorPositions(data);
         }
-        break;
-    }
-    default:
-        break;
     }
 }
 
@@ -376,70 +413,41 @@ void randomizeDest(implicitMapperData data)
     printf("randomizeDest()\n");
     int i, j;
     float rand_val;
-    mapper_db_signal props;
     if (!data->ready)
         return;
 
-    mdev_now(data->device, &data->tt);
-    mdev_start_queue(data->device, data->tt);
-    mapper_signal *psig = mdev_get_outputs(data->device);
+    mapper_timetag_now(&data->tt);
+    mapper_device_start_queue(data->device, data->tt);
+    mapper_signal *psig = mapper_device_signals(data->device, MAPPER_DIR_OUTGOING);
     t_ioValue *output = &data->output;
-    for (i = 1; i < mdev_num_outputs(data->device); i ++) {
-        props = msig_properties(psig[i]);
-        t_signal_ref *ref = (t_signal_ref*)props->user_data;
-        if (props->type == 'f') {
-            float v[props->length];
-            float *min = (float*)props->minimum, *max = (float*)props->maximum;
-            for (j = 0; j < props->length; j++) {
-                rand_val = (float)rand() / (float)RAND_MAX;
-                if (min && max) {
-                    v[j] = rand_val * (max[j] - min[j]) + min[j];
-                }
-                else {
-                    // if ranges have not been declared, assume normalized between 0 and 1
-                    v[j] = rand_val;
-                }
-                output->value[ref->offset+j] = v[j];
-                printf("   set val[%i] to %f (f)\n", ref->offset+j, output->value[ref->offset+j]);
-            }
-            msig_update(psig[i], v, 1, data->tt);
+
+    while (psig) {
+        if (*psig == data->dummy_output) {
+            psig = mapper_signal_query_next(psig);
+            continue;
         }
-        else if (props->type == 'i') {
-            int v[props->length];
-            int *min = (int*)props->minimum, *max = (int*)props->maximum;
-            for (j = 0; j < props->length; j++) {
-                rand_val = (float)rand() / (float)RAND_MAX;
-                if (props->minimum && props->maximum) {
-                    v[j] = (int) (rand_val * (max[j] - min[j]) + min[j]);
-                }
-                else {
-                    // if ranges have not been declared, assume normalized between 0 and 1
-                    v[j] = (int) rand_val;
-                }
-                output->value[ref->offset+j] = (float)v[j];
-                printf("   set val[%i] to %f (i)\n", ref->offset+j, output->value[ref->offset+j]);
+        t_signal_ref *ref = (t_signal_ref*)mapper_signal_user_data(*psig);
+        int length = mapper_signal_length(*psig);
+        float v[length];
+        float *min = (float*)mapper_signal_minimum(*psig);
+        float *max = (float*)mapper_signal_maximum(*psig);
+        for (j = 0; j < length; j++) {
+            rand_val = (float)rand() / (float)RAND_MAX;
+            if (min && max) {
+                printf("   using range %f : %f\n", min[j], max[j]);
+                v[j] = rand_val * (max[j] - min[j]) + min[j];
             }
-            msig_update(psig[i], v, 1, data->tt);
-        }
-        else if (props->type == 'd') {
-            double v[props->length];
-            double *min = (double*)props->minimum, *max = (double*)props->maximum;
-            for (j = 0; j < props->length; j++) {
-                rand_val = (float)rand() / (float)RAND_MAX;
-                if (props->minimum && props->maximum) {
-                    v[j] = rand_val * (max[j] - min[j]) + min[j];
-                }
-                else {
-                    // if ranges have not been declared, assume normalized between 0 and 1
-                    v[j] = rand_val;
-                }
-                output->value[ref->offset+j] = (float)v[j];
-                printf("   set val[%i] to %f (d)\n", ref->offset+j, output->value[ref->offset+j]);
+            else {
+                // if ranges have not been declared, assume normalized between 0 and 1
+                v[j] = rand_val;
             }
-            msig_update(psig[i], v, 1, data->tt);
+            output->value[ref->offset+j] = v[j];
+            printf("   set val[%i] to %f (f)\n", ref->offset+j, output->value[ref->offset+j]);
         }
+        mapper_signal_update(*psig, v, 1, data->tt);
+        psig = mapper_signal_query_next(psig);
     }
-    mdev_send_queue(data->device, data->tt);
+    mapper_device_send_queue(data->device, data->tt);
     // update ranges
     for (i = 0; i < output->size; i++) {
         bool recalc = false;
@@ -472,7 +480,6 @@ void takeSnapshot(implicitMapperData data)
         return;
     }
 
-    int i, num;
     mapper_signal *psig;
     data->queryCount = 0;
 
@@ -485,29 +492,33 @@ void takeSnapshot(implicitMapperData data)
     data->snapshots = new_snapshot;
 
     // iterate through input signals and store their current values
-    psig = mdev_get_inputs(data->device);
-    num = mdev_num_inputs(data->device);
-    for (i = 1; i < num; i++) {
-        mapper_db_signal props = msig_properties(psig[i]);
-        void *value = msig_value(psig[i], 0);
-        t_signal_ref *ref = (t_signal_ref*) props->user_data;
-        int length = (ref->offset + props->length < MAX_LIST
-                      ? props->length
-                      : MAX_LIST - ref->offset);
-        // we can simply use memcpy here since all our signals are type 'f'
-        memcpy(&data->snapshots->inputs[ref->offset], value, length*sizeof(float));
+    psig = mapper_device_signals(data->device, MAPPER_DIR_INCOMING);
+    while (psig) {
+        if (*psig != data->dummy_input) {
+            const void *value = mapper_signal_value(*psig, 0);
+            t_signal_ref *ref = (t_signal_ref*) mapper_signal_user_data(*psig);
+            int length = mapper_signal_length(*psig);
+            length = (ref->offset + length < MAX_LIST ? length : MAX_LIST - ref->offset);
+            // we can simply use memcpy here since all our signals are type 'f'
+            memcpy(&data->snapshots->inputs[ref->offset], value, length*sizeof(float));
+        }
+        psig = mapper_signal_query_next(psig);
     }
 
+    mapper_timetag_now(&data->tt);
+    mapper_device_start_queue(data->device, data->tt);
+
     // iterate through output signals and query the remote ends
-    psig = mdev_get_outputs(data->device);
-    num = mdev_num_outputs(data->device);
-    mdev_now(data->device, &data->tt);
-    mdev_start_queue(data->device, data->tt);
-    for (i = 1; i < num; i++) {
-        // query the remote value
-        data->queryCount += msig_query_remotes(psig[i], MAPPER_NOW);
+    psig = mapper_device_signals(data->device, MAPPER_DIR_OUTGOING);
+    while (psig) {
+        if (*psig != data->dummy_output) {
+            // query the remote value
+            data->queryCount += mapper_signal_query_remotes(*psig, MAPPER_NOW);
+        }
+        psig = mapper_signal_query_next(psig);
     }
-    mdev_send_queue(data->device, data->tt);
+
+    mapper_device_send_queue(data->device, data->tt);
     printf("sent %i queries", data->queryCount);
 }
 
